@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>ポケットミクで好きな歌詞を歌ってくれるMIDIファイルを作成</title>
+<script type="text/javascript">
+/*
+* 2014/04/10 written by aisot(https://twitter.com/aisot)
+* URL:http://aisot.org/39/mikuex
+* Licensed under the MIT license.
+* http://opensource.org/licenses/mit-license
+*/
+(function(global) {
+    'use strict';
+
+    //変換テーブル
+    var tableArr = 'あ|い|う|え|お|か|き|く|け|こ|が|ぎ|ぐ|げ|ご|きゃ|きゅ|きょ|ぎゃ|ぎゅ|ぎょ|さ|すぃ|す|せ|そ|ざ|ずぃ|ず|ぜ|ぞ|しゃ|し|しゅ|しぇ|しょ|じゃ|じ|じゅ|じぇ|じょ|た|てぃ|とぅ|て|と|だ|でぃ|どぅ|で|ど|てゅ|でゅ|ちゃ|ち|ちゅ|ちぇ|ちょ|つぁ|つぃ|つ|つぇ|つぉ|な|に|ぬ|ね|の|にゃ|にゅ|にょ|は|ひ|ふ|へ|ほ|ば|び|ぶ|べ|ぼ|ぱ|ぴ|ぷ|ぺ|ぽ|ひゃ|ひゅ|ひょ|びゃ|びゅ|びょ|ぴゃ|ぴゅ|ぴょ|ふぁ|ふぃ|ふゅ|ふぇ|ふぉ|ま|み|む|め|も|みゃ|みゅ|みょ|や|ゆ|よ|ら|り|る|れ|ろ|りゃ|りゅ|りょ|わ|うぃ|うぇ|うぉ|ん|m|J|n'.split('|');
+    var otoArr = 'を:うぉ|づぁ:ざ|づぃ:ずぃ|づ:ず|づぇ:ぜ|づぉ:ぞ'.split('|');
+    var TableHash = [];
+    for (var i = 0; i < tableArr.length; i++) {
+        TableHash[tableArr[i]] = i.toString(16);
+    }
+    //正規表現
+    var rep = tableArr.concat().sort(function(a, b){
+        return (a.length==1);
+    }).join('|');
+    var reg = new RegExp(rep,'g');
+
+    //sysExに置換
+    var sys_ex = function (lyric_arr){
+        var sys_ex = '';
+        for (var i = 0; i < lyric_arr.length; i++) {
+            var code = TableHash[lyric_arr[i]];
+            sys_ex +=  ("00"+code).slice(-2)+ ':';
+        }
+        return sys_ex;
+    }
+    
+    //変換できない文字を削除
+    var lyric_arr = function (str){
+        //カタカナひらがな変換
+        var str = str.replace(/[ァ-ン]/g, function(s) {
+           return String.fromCharCode(s.charCodeAt(0) - 0x60);
+        });
+        //同じ音を置換
+        for (var i = 0; i < otoArr.length; i++) {
+            var s = otoArr[i].split(':',2);
+            str = str.split(s[0]).join(s[1]);
+        }
+        lyric_arr = str.match(reg).slice(0, 64);
+        return lyric_arr;
+    }
+
+    ////SMF1組立
+    var _create_midi = function(lyric_arr,mNote){
+        var name     = "Miku";
+        //可変長数値表現
+        var _vlq = function(n) {
+            var arr = [];
+            arr.push((n & 0x7F));
+            n = (n >> 7);
+            while (n > 0) {
+                arr.unshift(0x80 + (n & 0x7f));
+                n = (n >> 7);
+            }
+            for (var i=0;i<arr.length;i++) {
+                arr[i] = (arr[i].toString(16) == 0)?"00":arr[i].toString(16);
+                arr[i] = ("00"+arr[i]).slice(-2);
+            }
+            return arr.join(':')+':'
+        }
+        //文字列にする
+        var _to = function(inStr){
+            var hex='';
+            for(var i = 0;i<inStr.length;i++){
+                hex += inStr.charCodeAt(i).toString(16)+':';
+            }
+            var size = _vlq(inStr.length);
+            return { h:hex , size:size};
+        }
+    //SMF1データ
+    var mhex = _to('MThd').h;    //ヘッダ開始 MThd
+        mhex +='00:00:00:06:';   //データ長　6
+        mhex +='00:01:';         //フォーマット(0000/0001/0002)
+        mhex +='00:02:';         //トラック数
+        mhex +='01:E0:';         //分解能=1920/4=480=0x01E0
+        mhex +=_to('MTrk').h;    //Conductorトラック開始
+        mhex +='00:00:00:04:';   //データ長 拍子とか入れてない。
+        mhex +='00:FF:2F:00:';   //トラックエンド
+
+        var mhex2  ='00:';                    //開始場所
+        var trName = _to(name);
+        mhex2     +='FF:03:'+trName.size;     //トラック名+データ長
+        mhex2     +=trName.h;                 //文字列'MIDI' 
+
+        mhex2 +='00:F0:';                     //SysEx開始
+        var lyHex = NSX39.sys_ex(lyric_arr);
+        var sys_ex = '43:79:09:11:0A:00:';    //歌詞開始
+        sys_ex += lyHex;
+        sys_ex +='F7:';
+
+       //SysExデータの長さ
+       var size  = _vlq(sys_ex.length/3).toString(16);
+       mhex2 +=size+sys_ex;
+
+      //MIDIノート
+      if(mNote==1){
+          for(var i = 0;i<lyric_arr.length;i++){
+              //ノートデータ
+              mhex2+=_vlq(0)+'90:42:7F:';    // vel127でをノートF#3(42)オン
+              mhex2+=_vlq(480/2)+'42:00:';   // 480にノートF#3オフ
+          }
+      }
+      mhex2 += '00:FF:2F:00';  //トラックエンド
+      //データ長(とりあえず)
+      var n  = ((mhex2.length+1)/3);
+      var ns  = n.toString(16);
+      ns=("00000000"+ns).slice(-8);
+      ns = String( ns ).replace( /(\w\w)/g, '$1:' ); 
+      mhex +=_to('MTrk').h;  //トラック開始
+      mhex += ns + mhex2;
+      return mhex;
+    }
+    //ダウンロード
+    var midi_dl = function (lyric_arr,mNote) {
+        var name = lyric_arr.join('');
+        var hex = _create_midi(lyric_arr,mNote);
+
+        var Arr = hex.split(':');
+        var buf = new ArrayBuffer(Arr.length);
+        var uint8s = new Uint8Array(buf);
+        for (var i=0; i < Arr.length ; i++){
+            uint8s[i] = parseInt(Arr[i],16);
+        }
+       var midBlob = new Blob( [uint8s], {type: 'application/octet-stream'} );
+       var a      = document.createElement('a');
+       a.download = name+'.mid';
+       a.href     = URL.createObjectURL(midBlob);
+       document.body.appendChild(a);
+       a.click();
+       document.body.removeChild(a);
+  }
+  global.NSX39 = {
+        sys_ex     : sys_ex   ,
+        lyric_arr  : lyric_arr ,
+        midi_dl    : midi_dl   ,
+    };
+})(this);
+
+$ = function(id){ return document.getElementById(id) };
+function do_txt(){
+    var str = $('lyrics_txt').value;
+　　if(str.length > 0){
+        var arr = NSX39.lyric_arr(str);
+        $('lyrics_kana').innerHTML  = arr.join('');
+        $('lyrics_count').innerHTML = arr.length;
+        $('lyrics_hex').innerHTML = NSX39.sys_ex(arr);
+    }else{
+        $('lyrics_kana').innerHTML  = '';
+        $('lyrics_count').innerHTML = 0;
+        $('lyrics_hex').innerHTML = '';
+    }
+}
+function do_dl(mNote){
+    var str = $('lyrics_txt').value;
+    if(str.length > 0){
+        var arr = NSX39.lyric_arr(str);
+        NSX39.midi_dl(arr,mNote);
+    }else{
+         alert('歌詞が入力されてません');
+    }
+}
+</script>
+</head>
+<body >
+
+<h1>ポケットミクで好きな歌詞を歌ってくれるMIDIファイルを作成</h1>
+
+<h3>歌詞入力（ひらがな）</h3>
+<textarea id="lyrics_txt" cols="64" rows="4" onkeyup="do_txt()"></textarea>
+
+<h3>発音(音数:<span id="lyrics_count">0</span>)</h3>
+<textarea readonly id="lyrics_kana" cols="64" rows="3"></textarea>
+
+<h3>対応するコード</h3>
+<textarea readonly id="lyrics_hex" cols="64" rows="3"></textarea>
+
+<p>
+<input type="button" value="MIDIをダウンロード(音あり)" onclick="do_dl(1)">
+<br><br>
+<input type="button" value="MIDIをダウンロード(音なし)" onclick="do_dl(0)">
+</p>
+
+<div style="margin-top:5em;width:40em">
+<h4>使い方:</h4>
+歌詞を入れるとポケミクが歌ってくれるMIDIファイルが作れます。(システム・エクスクルーシブが入ったSMF)
+DominoやCubase等で読みこんで送り先をNSX-39の1chにすれば、メロディ入力して伴奏と合わせたり、リアルタイム演奏などで歌ってくれます<br>
+<br>
+HTML5に対応した最近のブラウザ(ChromeやFirefox)なら動くと思いますが無保証です。IEでは動きません。たぶんバグあります。必要であれば
+<a href="mikuex.html" download="mikuex.html">ダウンロード</a>してもっと良い感じに改良して使ってください。とりあえず動けばいいやで作ったので、いろいろアレです。
+</div>
+
+</body>
+</html>
