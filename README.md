@@ -4,7 +4,7 @@
 
 ## URL:
 - <https://aisot.org/39/mikuex>
-- <https://aisot.github.io/mikuex/mikuex.html>
+- <https://aisot.github.io/mikuex/>
 
 ## 使い方
 歌詞を入れるとポケミクが歌ってくれるMIDIファイルが作れます。(システム・エクスクルーシブが入ったSMF) DominoやCubase等で読みこんで送り先をNSX-39の1chにすれば、メロディ入力して伴奏と合わせたり、リアルタイム演奏などで歌ってくれます
