@@ -3,7 +3,6 @@
 ポケットミクで好きな歌詞を歌ってくれるMIDIファイルを作成
 
 ## URL:
-- <https://aisot.org/39/mikuex>
 - <https://aisot.github.io/mikuex/>
 
 ## 使い方
